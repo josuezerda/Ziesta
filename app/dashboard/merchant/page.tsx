@@ -31,7 +31,8 @@ import {
   ShoppingCart,
   Shield,
   Camera,
-  CameraOff
+  CameraOff,
+  Radio
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
