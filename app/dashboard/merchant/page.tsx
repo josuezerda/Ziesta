@@ -126,7 +126,7 @@ const TABS = [
   { id: 'promotions', label: 'Promociones', icon: Tag },
   { id: 'paquetes', label: 'Recargar Puntos', icon: ShoppingCart },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-  { id: 'totems', label: 'Tótems (Próximamente)', icon: Radio },
+  { id: 'totems', label: 'Mis Tótems', icon: Radio },
 ];
 
 export default function MerchantDashboard() {
@@ -172,6 +172,9 @@ export default function MerchantDashboard() {
   const [stampCards, setStampCards] = useState<StampCard[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [whatsappNumbers, setWhatsappNumbers] = useState<WhatsAppNumber[]>([]);
+  const [totems, setTotems] = useState<any[]>([]);
+  const [totemMedia, setTotemMedia] = useState<any[]>([]);
+  const [totemSurprises, setTotemSurprises] = useState<any[]>([]);
 
   // Editing State
   const [editingItem, setEditingItem] = useState<any>(null);
@@ -265,6 +268,12 @@ export default function MerchantDashboard() {
         loadPromotions(merchantData.id),
         loadWhatsAppNumbers(merchantData.id)
       ]);
+      const { data: t } = await supabase.from("totems").select("*").eq("merchant_id", merchantData.id);
+      const { data: tm } = await supabase.from("totem_media").select("*"); // With RLS it only gets theirs
+      const { data: ts } = await supabase.from("totem_surprises").select("*");
+      setTotems(t || []);
+      setTotemMedia(tm || []);
+      setTotemSurprises(ts || []);
     } else {
       setShowSetup(true);
     }
@@ -683,6 +692,151 @@ export default function MerchantDashboard() {
     </div>
   );
 
+  const renderTotems = () => (
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold" style={{ fontFamily: "var(--font-outfit)" }}>Mis Tótems</h2>
+      </div>
+
+      {/* Lista de Tótems */}
+      <div className="glass-card p-6 mb-6">
+        <h3 className="font-bold text-lg mb-4 text-[var(--neutral-800)]">Tus Tótems Activos</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {totems.length === 0 ? (
+            <p className="text-sm text-[var(--neutral-500)] col-span-full">No tienes tótems configurados aún.</p>
+          ) : (
+            totems.map(t => (
+              <div key={t.id} className="border border-[rgba(139,70,255,0.1)] rounded-2xl p-5 bg-white/50 flex flex-col relative overflow-hidden group">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-bold text-[var(--ziesta-600)]">{t.name}</h4>
+                  <div className={`px-2 py-1 rounded-full text-xs font-bold ${t.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    {t.status === 'online' ? 'Online' : 'Offline'}
+                  </div>
+                </div>
+                <p className="text-sm text-[var(--neutral-500)] mb-4">{t.location || 'Sin ubicación'}</p>
+                <div className="mt-auto">
+                  <a href={`/totem/${t.id}`} target="_blank" rel="noopener noreferrer" className="btn-primary w-full justify-center text-sm py-2">
+                    Abrir Tótem <ArrowRight size={16} />
+                  </a>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        
+        {/* Form to create a new Totem */}
+        <div className="mt-8 border-t border-[rgba(139,70,255,0.1)] pt-6">
+          <h4 className="font-bold text-md mb-4 text-[var(--neutral-800)]">Crear Nuevo Tótem</h4>
+          <form className="flex flex-col sm:flex-row gap-4" onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const name = (form.elements.namedItem('name') as HTMLInputElement).value;
+            const location = (form.elements.namedItem('location') as HTMLInputElement).value;
+            const supabase = createClient();
+            await supabase.from('totems').insert({ merchant_id: merchant?.id, name, location, status: 'offline' });
+            form.reset();
+            loadData();
+          }}>
+            <input type="text" name="name" placeholder="Nombre (ej: Tótem Entrada)" required className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none flex-1" />
+            <input type="text" name="location" placeholder="Ubicación" className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none flex-1" />
+            <button type="submit" className="btn-primary px-6"><Plus size={18} /> Crear</button>
+          </form>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* Media Management */}
+        <div className="glass-card p-6">
+          <h3 className="font-bold text-lg mb-4 text-[var(--neutral-800)]">Multimedia (Imágenes/Videos)</h3>
+          <ul className="space-y-3 mb-6">
+            {totemMedia.map(m => (
+              <li key={m.id} className="flex justify-between items-center text-sm p-3 bg-white/50 rounded-xl border border-[rgba(139,70,255,0.05)]">
+                <span className="truncate flex-1 mr-4">{m.url} ({m.type}) - {m.duration}s</span>
+                <button onClick={async () => {
+                  const supabase = createClient();
+                  await supabase.from('totem_media').delete().eq('id', m.id);
+                  loadData();
+                }} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={16}/></button>
+              </li>
+            ))}
+          </ul>
+          <form className="space-y-4" onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const url = (form.elements.namedItem('url') as HTMLInputElement).value;
+            const type = (form.elements.namedItem('type') as HTMLSelectElement).value;
+            const duration = (form.elements.namedItem('duration') as HTMLInputElement).value;
+            const totem_id = (form.elements.namedItem('totem_id') as HTMLSelectElement).value;
+            if (!totem_id) return alert('Selecciona un tótem primero');
+            const supabase = createClient();
+            await supabase.from('totem_media').insert({ totem_id, merchant_id: merchant?.id, url, type, duration: parseInt(duration) || 10, order_index: totemMedia.length });
+            form.reset();
+            loadData();
+          }}>
+            <select name="totem_id" required className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none">
+              <option value="">Seleccionar Tótem...</option>
+              {totems.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <input type="text" name="url" placeholder="URL de la imagen o video" required className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none" />
+            <div className="flex gap-4">
+              <select name="type" className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none flex-1">
+                <option value="image">Imagen</option>
+                <option value="video">Video</option>
+              </select>
+              <input type="number" name="duration" placeholder="Duración (seg)" defaultValue={10} className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none flex-1" />
+            </div>
+            <button type="submit" className="btn-primary w-full justify-center py-3"><Plus size={18} /> Agregar Media</button>
+          </form>
+        </div>
+
+        {/* Surprises Management */}
+        <div className="glass-card p-6">
+          <h3 className="font-bold text-lg mb-4 text-[var(--neutral-800)]">Sorpresas Aleatorias</h3>
+          <ul className="space-y-3 mb-6">
+            {totemSurprises.map(s => (
+              <li key={s.id} className="flex justify-between items-center text-sm p-3 bg-white/50 rounded-xl border border-[rgba(139,70,255,0.05)]">
+                <span className="flex-1 mr-4">
+                  <strong>{s.prize_type}</strong>: {s.prize_description} ({s.frequency_per_day}/día)
+                </span>
+                <button onClick={async () => {
+                  const supabase = createClient();
+                  await supabase.from('totem_surprises').delete().eq('id', s.id);
+                  loadData();
+                }} className="text-red-500 hover:text-red-700 p-1"><Trash2 size={16}/></button>
+              </li>
+            ))}
+          </ul>
+          <form className="space-y-4" onSubmit={async (e) => {
+            e.preventDefault();
+            const form = e.target as HTMLFormElement;
+            const prize_type = (form.elements.namedItem('prize_type') as HTMLSelectElement).value;
+            const prize_description = (form.elements.namedItem('prize_description') as HTMLInputElement).value;
+            const frequency_per_day = (form.elements.namedItem('frequency_per_day') as HTMLInputElement).value;
+            const totem_id = (form.elements.namedItem('totem_id') as HTMLSelectElement).value;
+            if (!totem_id) return alert('Selecciona un tótem primero');
+            const supabase = createClient();
+            await supabase.from('totem_surprises').insert({ totem_id, merchant_id: merchant?.id, prize_type, prize_description, frequency_per_day: parseInt(frequency_per_day) || 1 });
+            form.reset();
+            loadData();
+          }}>
+            <select name="totem_id" required className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none">
+              <option value="">Seleccionar Tótem...</option>
+              {totems.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <select name="prize_type" className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none">
+              <option value="discount">Descuento</option>
+              <option value="free_product">Producto Gratis</option>
+              <option value="bonus_points">Puntos Extra</option>
+            </select>
+            <input type="text" name="prize_description" placeholder="Descripción (ej: 10% de descuento en café)" required className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none" />
+            <input type="number" name="frequency_per_day" placeholder="Frecuencia por día (ej: 5)" required min={1} className="w-full px-4 py-3 rounded-xl border border-[rgba(139,70,255,0.12)] bg-white/80 focus:border-[var(--ziesta-400)] focus:ring-2 focus:ring-[rgba(139,70,255,0.1)] outline-none" />
+            <button type="submit" className="btn-primary w-full justify-center py-3"><Plus size={18} /> Agregar Sorpresa</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderPaquetes = () => (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex justify-between items-center mb-6">
@@ -791,6 +945,7 @@ export default function MerchantDashboard() {
           {activeTab === 'promotions' && renderPromotions()}
           {activeTab === 'paquetes' && renderPaquetes()}
           {activeTab === 'whatsapp' && renderWhatsApp()}
+          {activeTab === 'totems' && renderTotems()}
         </div>
 
         {/* Quick Access Auditing */}

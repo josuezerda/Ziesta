@@ -63,6 +63,12 @@ export default function ClientDashboard() {
   const [tokenExpiry, setTokenExpiry] = useState<number>(60);
   const router = useRouter();
 
+  const [isStaking, setIsStaking] = useState(false);
+  const [stakingStartTime, setStakingStartTime] = useState<number | null>(null);
+  const [stakingElapsed, setStakingElapsed] = useState<number>(0);
+
+  const ENABLE_STAKING = true; // Set to true to test it, we will keep it visible for now so the user can test it.
+
   useEffect(() => {
     loadData();
   }, []);
@@ -87,6 +93,82 @@ export default function ClientDashboard() {
     }, 1000);
     return () => clearInterval(timer);
   }, [profile]);
+
+  // Staking timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isStaking && stakingStartTime) {
+      interval = setInterval(() => {
+        setStakingElapsed(Math.floor((Date.now() - stakingStartTime) / 1000));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isStaking, stakingStartTime]);
+
+  const handleStartStaking = () => {
+    setIsStaking(true);
+    setStakingStartTime(Date.now());
+    setStakingElapsed(0);
+  };
+
+  const handleStopStaking = async () => {
+    setIsStaking(false);
+    if (!stakingStartTime || !profile) return;
+    
+    const endTime = Date.now();
+    const elapsedMinutes = Math.floor((endTime - stakingStartTime) / 60000);
+    
+    if (elapsedMinutes >= 1) {
+      const earned = elapsedMinutes * 1; // 1 ZST per minute for testing
+      const supabase = createClient();
+      
+      const newBalance = profile.points_balance + earned;
+      const newTotal = profile.total_points_earned + earned;
+      
+      // Update balance
+      await supabase
+        .from("profiles")
+        .update({
+          points_balance: newBalance,
+          total_points_earned: newTotal,
+        })
+        .eq("id", profile.id);
+        
+      // Insert transaction
+      await supabase.from("transactions").insert({
+        client_id: profile.id,
+        type: "earn",
+        points: earned,
+        description: `Siesta Staking (${elapsedMinutes} min)`,
+      });
+      
+      // Insert staking session
+      await supabase.from("staking_sessions").insert({
+        client_id: profile.id,
+        start_time: new Date(stakingStartTime).toISOString(),
+        end_time: new Date(endTime).toISOString(),
+        points_earned: earned,
+        duration_minutes: elapsedMinutes
+      });
+      
+      setProfile({
+        ...profile,
+        points_balance: newBalance,
+        total_points_earned: newTotal,
+      });
+      
+      loadData();
+    }
+    
+    setStakingStartTime(null);
+    setStakingElapsed(0);
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, "0");
+    const s = (seconds % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   async function loadData() {
     const supabase = createClient();
@@ -289,6 +371,79 @@ export default function ClientDashboard() {
             </motion.div>
           </div>
         </div>
+
+        {ENABLE_STAKING && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="mb-8 relative rounded-3xl overflow-hidden p-8 text-white shadow-2xl bg-gradient-to-br from-[#1a1025] to-[#2d1b4e]"
+          >
+            <motion.div
+              animate={{
+                backgroundPosition: ["0% 0%", "100% 100%"],
+              }}
+              transition={{
+                duration: 20,
+                repeat: Infinity,
+                repeatType: "reverse",
+              }}
+              className="absolute inset-0 z-0 opacity-50 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[rgba(139,70,255,0.2)] via-transparent to-transparent"
+              style={{ backgroundSize: "200% 200%" }}
+            />
+            {isStaking && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                className="absolute inset-0 z-0"
+                style={{
+                  backgroundImage: "radial-gradient(rgba(255,255,255,0.1) 1px, transparent 1px)",
+                  backgroundSize: "20px 20px"
+                }}
+              />
+            )}
+
+            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4 text-left">
+                <div className="w-16 h-16 rounded-2xl bg-[rgba(139,70,255,0.15)] flex items-center justify-center border border-[rgba(139,70,255,0.3)]">
+                  <motion.div
+                    animate={isStaking ? { rotate: 360 } : { rotate: 0 }}
+                    transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                  >
+                    <Star size={32} className="text-[var(--ziesta-400)]" />
+                  </motion.div>
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-outfit)" }}>Siesta Staking</h3>
+                  <p className="text-white/60 text-sm">Descansá y ganá 1 ZST por minuto.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                {isStaking && (
+                  <div className="text-center">
+                    <p className="text-white/50 text-xs uppercase tracking-wider mb-1 font-semibold">Tiempo de Siesta</p>
+                    <p className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[var(--ziesta-400)] to-[var(--accent-cyan)]" style={{ fontFamily: "var(--font-outfit)" }}>
+                      {formatTime(stakingElapsed)}
+                    </p>
+                  </div>
+                )}
+
+                <button
+                  onClick={isStaking ? handleStopStaking : handleStartStaking}
+                  className={`px-8 py-4 rounded-xl font-bold text-lg transition-all shadow-lg hover:scale-105 ${
+                    isStaking
+                      ? "bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500/30"
+                      : "bg-gradient-to-r from-[var(--ziesta-500)] to-[var(--accent-cyan)] text-white border-none"
+                  }`}
+                >
+                  {isStaking ? "Despertar" : "Iniciar Siesta"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         <div className="grid lg:grid-cols-2 gap-8">
           {/* Rotating QR Token */}
           <motion.div
